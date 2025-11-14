@@ -37,6 +37,13 @@ module Raix
       flatten.compact
     end
 
+    # Clear all messages
+    def clear
+      @ruby_llm_chat.reset_messages!
+      @pending_messages.clear
+      self
+    end
+
     private
 
     def add_message_from_hash(hash)

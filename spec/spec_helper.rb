@@ -3,7 +3,7 @@
 require "dotenv"
 require "faraday"
 require "faraday/retry"
-require "open_router"
+require "ruby_llm"
 require "pry"
 require "raix"
 
@@ -31,23 +31,16 @@ retry_options = {
   backoff_factor: 2
 }
 
-OpenRouter.configure do |config|
-  config.faraday do |f|
-    f.request :retry, retry_options
-    f.response :logger, Logger.new($stdout), { headers: true, bodies: true, errors: true } do |logger|
-      logger.filter(/(Bearer) (\S+)/, '\1[REDACTED]')
-    end
-  end
+RubyLLM.configure do |config|
+  config.openrouter_api_key = ENV.fetch("OR_ACCESS_TOKEN", nil)
+  config.openai_api_key = ENV.fetch("OAI_ACCESS_TOKEN", nil)
+  config.log_level = Logger::DEBUG
 end
 
 Raix.configure do |config|
-  config.openrouter_client = OpenRouter::Client.new(access_token: ENV.fetch("OR_ACCESS_TOKEN", nil))
-  config.openai_client = OpenAI::Client.new(access_token: ENV.fetch("OAI_ACCESS_TOKEN", nil)) do |f|
-    f.request :retry, retry_options
-    f.response :logger, Logger.new($stdout), { headers: true, bodies: true, errors: true } do |logger|
-      logger.filter(/(Bearer) (\S+)/, '\1[REDACTED]')
-    end
-  end
+  # Legacy support - can still set these if needed
+  # config.openrouter_client = OpenRouter::Client.new(access_token: ENV.fetch("OR_ACCESS_TOKEN", nil))
+  # config.openai_client = OpenAI::Client.new(access_token: ENV.fetch("OAI_ACCESS_TOKEN", nil))
 end
 
 RSpec.configure do |config|

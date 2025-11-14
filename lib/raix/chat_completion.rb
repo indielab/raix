@@ -152,7 +152,7 @@ module Raix
         return if stream && response.blank?
 
         # tuck the full response into a thread local in case needed
-        Thread.current[:chat_completion_response] = response.with_indifferent_access if response.is_a?(Hash)
+        Thread.current[:chat_completion_response] = response.is_a?(Hash) ? response.with_indifferent_access : response
 
         # TODO: add a standardized callback hook for usage events
         # broadcast(:usage_event, usage_subject, self.class.name.to_s, response, premium?)
@@ -318,6 +318,9 @@ module Raix
       chat = RubyLLM.chat(model:, provider:, assume_model_exists: true)
 
       # Apply messages to the chat
+      # Track if we have a user message to determine how to call ask
+      has_user_message = false
+
       messages.each do |msg|
         role = msg[:role] || msg["role"]
         content = msg[:content] || msg["content"]
@@ -326,6 +329,7 @@ module Raix
         when "system"
           chat.with_instructions(content)
         when "user"
+          has_user_message = true
           chat.add_message(role: :user, content:)
         when "assistant"
           if msg[:tool_calls] || msg["tool_calls"]
@@ -344,7 +348,10 @@ module Raix
 
       # Apply configuration parameters
       chat.with_temperature(params[:temperature]) if params[:temperature]
-      chat.with_params(params.compact.except(:temperature, :tools, :max_tokens, :max_completion_tokens))
+
+      # Apply additional params (RubyLLM with_params expects keyword args)
+      additional_params = params.compact.except(:temperature, :tools, :max_tokens, :max_completion_tokens)
+      chat.with_params(**additional_params) if additional_params.any?
 
       # Handle tools - convert Raix function declarations to RubyLLM tools
       if params[:tools].present? && respond_to?(:class) && self.class.respond_to?(:functions)
@@ -355,11 +362,15 @@ module Raix
       # Execute the completion
       if stream.present?
         # Streaming mode
-        chat.ask(&stream)
+        if has_user_message
+          chat.complete(&stream)
+        else
+          chat.ask(&stream)
+        end
         nil # Return nil for streaming as per original behavior
       else
         # Non-streaming mode - return OpenAI-compatible response format
-        response_message = chat.ask
+        response_message = has_user_message ? chat.complete : chat.ask
 
         # Convert RubyLLM response to OpenAI format for compatibility
         {

@@ -1,7 +1,11 @@
 # frozen_string_literal: true
 
+require "ruby_llm"
+
 require_relative "raix/version"
 require_relative "raix/configuration"
+require_relative "raix/transcript_adapter"
+require_relative "raix/function_tool_adapter"
 require_relative "raix/chat_completion"
 require_relative "raix/function_dispatch"
 require_relative "raix/prompt_declarations"
