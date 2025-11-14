@@ -3,10 +3,11 @@
 require "active_support/concern"
 require "active_support/core_ext/object/blank"
 require "active_support/core_ext/string/filters"
-require "open_router"
-require "openai"
+require "ruby_llm"
 
 require_relative "message_adapters/base"
+require_relative "transcript_adapter"
+require_relative "function_tool_adapter"
 
 module Raix
   class UndeclaredToolError < StandardError; end
@@ -143,11 +144,7 @@ module Raix
       raise "Can't complete an empty transcript" if messages.blank?
 
       begin
-        response = if openai
-                     openai_request(params:, model: openai, messages:)
-                   else
-                     openrouter_request(params:, model:, messages:)
-                   end
+        response = ruby_llm_request(params:, model: openai || model, messages:, openai_override: openai)
         retry_count = 0
         content = nil
 
@@ -155,7 +152,7 @@ module Raix
         return if stream && response.blank?
 
         # tuck the full response into a thread local in case needed
-        Thread.current[:chat_completion_response] = response.with_indifferent_access
+        Thread.current[:chat_completion_response] = response.with_indifferent_access if response.is_a?(Hash)
 
         # TODO: add a standardized callback hook for usage events
         # broadcast(:usage_event, usage_subject, self.class.name.to_s, response, premium?)
@@ -171,11 +168,7 @@ module Raix
 
             # Force a final response without tools
             params[:tools] = nil
-            response = if openai
-                         openai_request(params:, model: openai, messages:)
-                       else
-                         openrouter_request(params:, model:, messages:)
-                       end
+            response = ruby_llm_request(params:, model: openai || model, messages:, openai_override: openai)
 
             # Process the final response
             content = response.dig("choices", 0, "message", "content")
@@ -217,11 +210,7 @@ module Raix
           elsif @stop_tool_calls_and_respond
             # If stop_tool_calls_and_respond was set, force a final response without tools
             params[:tools] = nil
-            response = if openai
-                         openai_request(params:, model: openai, messages:)
-                       else
-                         openrouter_request(params:, model:, messages:)
-                       end
+            response = ruby_llm_request(params:, model: openai || model, messages:, openai_override: openai)
 
             content = response.dig("choices", 0, "message", "content")
             transcript << { assistant: content } if save_response
@@ -279,7 +268,23 @@ module Raix
     #
     # @return [Array] The transcript array.
     def transcript
-      @transcript ||= []
+      @transcript ||= TranscriptAdapter.new(ruby_llm_chat)
+    end
+
+    # Returns the RubyLLM::Chat instance for this conversation
+    def ruby_llm_chat
+      @ruby_llm_chat ||= begin
+        model_id = model || configuration.model
+
+        # Determine provider based on model format or explicit openai flag
+        provider = if model_id.to_s.start_with?("openai/") || model_id.to_s.match?(/^gpt-/)
+                     :openai
+                   else
+                     :openrouter
+                   end
+
+        RubyLLM.chat(model: model_id, provider:, assume_model_exists: true)
+      end
     end
 
     # Dispatches a tool function call with the given function name and arguments.
@@ -307,42 +312,85 @@ module Raix
       tools.select { |tool| requested_tools.include?(tool.dig(:function, :name).to_sym) }
     end
 
-    def openai_request(params:, model:, messages:)
-      if params[:prediction]
-        params.delete(:max_completion_tokens)
-      else
-        params[:max_completion_tokens] ||= params[:max_tokens]
-        params.delete(:max_tokens)
+    def ruby_llm_request(params:, model:, messages:, openai_override: nil)
+      # Create a temporary chat instance for this request
+      provider = determine_provider(model, openai_override)
+      chat = RubyLLM.chat(model:, provider:, assume_model_exists: true)
+
+      # Apply messages to the chat
+      messages.each do |msg|
+        role = msg[:role] || msg["role"]
+        content = msg[:content] || msg["content"]
+
+        case role.to_s
+        when "system"
+          chat.with_instructions(content)
+        when "user"
+          chat.add_message(role: :user, content:)
+        when "assistant"
+          if msg[:tool_calls] || msg["tool_calls"]
+            chat.add_message(role: :assistant, content:, tool_calls: msg[:tool_calls] || msg["tool_calls"])
+          else
+            chat.add_message(role: :assistant, content:)
+          end
+        when "tool"
+          chat.add_message(
+            role: :tool,
+            content:,
+            tool_call_id: msg[:tool_call_id] || msg["tool_call_id"]
+          )
+        end
       end
 
-      params[:stream] ||= stream.presence
-      params[:stream_options] = { include_usage: true } if params[:stream]
+      # Apply configuration parameters
+      chat.with_temperature(params[:temperature]) if params[:temperature]
+      chat.with_params(params.compact.except(:temperature, :tools, :max_tokens, :max_completion_tokens))
 
-      params.delete(:temperature) if model.start_with?("o") || model.include?("gpt-5")
+      # Handle tools - convert Raix function declarations to RubyLLM tools
+      if params[:tools].present? && respond_to?(:class) && self.class.respond_to?(:functions)
+        ruby_llm_tools = FunctionToolAdapter.convert_tools_for_ruby_llm(self)
+        ruby_llm_tools.each { |tool| chat.with_tool(tool) }
+      end
 
-      configuration.openai_client.chat(parameters: params.compact.merge(model:, messages:))
+      # Execute the completion
+      if stream.present?
+        # Streaming mode
+        chat.ask(&stream)
+        nil # Return nil for streaming as per original behavior
+      else
+        # Non-streaming mode - return OpenAI-compatible response format
+        response_message = chat.ask
+
+        # Convert RubyLLM response to OpenAI format for compatibility
+        {
+          "choices" => [
+            {
+              "message" => {
+                "role" => "assistant",
+                "content" => response_message.content,
+                "tool_calls" => response_message.tool_calls
+              },
+              "finish_reason" => response_message.tool_call? ? "tool_calls" : "stop"
+            }
+          ],
+          "usage" => {
+            "prompt_tokens" => response_message.input_tokens,
+            "completion_tokens" => response_message.output_tokens,
+            "total_tokens" => (response_message.input_tokens || 0) + (response_message.output_tokens || 0)
+          }
+        }
+      end
+    rescue => e
+      warn "RubyLLM request failed: #{e.message}"
+      raise e
     end
 
-    def openrouter_request(params:, model:, messages:)
-      # max_completion_tokens is not supported by OpenRouter
-      params.delete(:max_completion_tokens)
+    def determine_provider(model, openai_override)
+      return :openai if openai_override
+      return :openai if model.to_s.match?(/^gpt-/) || model.to_s.match?(/^o\d/)
 
-      retry_count = 0
-
-      params.delete(:temperature) if model.start_with?("openai/o") || model.include?("gpt-5")
-
-      begin
-        configuration.openrouter_client.complete(messages, model:, extras: params.compact, stream:)
-      rescue OpenRouter::ServerError => e
-        if e.message.include?("retry")
-          warn "Retrying OpenRouter request... (#{retry_count} attempts) #{e.message}"
-          retry_count += 1
-          sleep 1 * retry_count # backoff
-          retry if retry_count < 5
-        end
-
-        raise e
-      end
+      # Default to openrouter for model IDs with provider prefix
+      :openrouter
     end
   end
 end

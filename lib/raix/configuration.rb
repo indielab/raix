@@ -30,15 +30,18 @@ module Raix
     # is normally set in each class that includes the ChatCompletion module.
     attr_accessor_with_fallback :model
 
-    # The openrouter_client option determines the default client to use for communication.
+    # DEPRECATED: Use ruby_llm_config.openrouter_api_key instead
     attr_accessor_with_fallback :openrouter_client
 
-    # The openai_client option determines the OpenAI client to use for communication.
+    # DEPRECATED: Use ruby_llm_config.openai_api_key instead
     attr_accessor_with_fallback :openai_client
 
     # The max_tool_calls option determines the maximum number of tool calls
     # before forcing a text response to prevent excessive function invocations.
     attr_accessor_with_fallback :max_tool_calls
+
+    # Access to RubyLLM configuration
+    attr_accessor_with_fallback :ruby_llm_config
 
     DEFAULT_MAX_TOKENS = 1000
     DEFAULT_MAX_COMPLETION_TOKENS = 16_384
@@ -53,11 +56,18 @@ module Raix
       self.max_tokens = DEFAULT_MAX_TOKENS
       self.model = DEFAULT_MODEL
       self.max_tool_calls = DEFAULT_MAX_TOOL_CALLS
+      self.ruby_llm_config = RubyLLM.config
       self.fallback = fallback
     end
 
     def client?
-      !!(openrouter_client || openai_client)
+      # Support legacy openrouter_client/openai_client or new RubyLLM config
+      !!(openrouter_client || openai_client || ruby_llm_configured?)
+    end
+
+    def ruby_llm_configured?
+      ruby_llm_config&.openai_api_key || ruby_llm_config&.openrouter_api_key ||
+        ruby_llm_config&.anthropic_api_key || ruby_llm_config&.gemini_api_key
     end
 
     private
