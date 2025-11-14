@@ -24,7 +24,9 @@ module Raix
 
     # Return all messages in Raix-compatible format
     def flatten
-      (@ruby_llm_chat.messages.map { |msg| message_to_raix_format(msg) } + @pending_messages).flatten
+      ruby_llm_messages = @ruby_llm_chat.messages.map { |msg| message_to_raix_format(msg) }
+      pending = @pending_messages.map { |msg| normalize_message_format(msg) }
+      (ruby_llm_messages + pending).flatten
     end
 
     # Get all messages including pending ones
@@ -42,6 +44,11 @@ module Raix
       @ruby_llm_chat.reset_messages!
       @pending_messages.clear
       self
+    end
+
+    # Get last message
+    def last
+      flatten.last
     end
 
     private
@@ -72,15 +79,42 @@ module Raix
     end
 
     def message_to_raix_format(message)
-      result = {
-        role: message.role.to_s,
-        content: message.content
-      }
+      # Return in Raix abbreviated format { system: "...", user: "...", assistant: "..." }
+      # unless it's a tool message which needs full format
+      if message.tool_call? || message.tool_result?
+        result = {
+          role: message.role.to_s,
+          content: message.content
+        }
+        result[:tool_calls] = message.tool_calls if message.tool_call?
+        result[:tool_call_id] = message.tool_call_id if message.tool_result?
+        result
+      else
+        # Use abbreviated format
+        { message.role.to_sym => message.content }
+      end
+    end
 
-      result[:tool_calls] = message.tool_calls if message.tool_call?
-      result[:tool_call_id] = message.tool_call_id if message.tool_result?
+    def normalize_message_format(msg)
+      # If already in abbreviated format, return as-is
+      return msg if msg.key?(:system) || msg.key?(:user) || msg.key?(:assistant)
+      return msg if msg["system"] || msg["user"] || msg["assistant"]
 
-      result
+      # If in standard format with role/content, convert to abbreviated
+      if msg[:role] || msg["role"]
+        role = (msg[:role] || msg["role"]).to_sym
+        content = msg[:content] || msg["content"]
+
+        # Tool messages stay in full format
+        if msg[:tool_calls] || msg["tool_calls"] || msg[:tool_call_id] || msg["tool_call_id"]
+          return msg
+        end
+
+        # Convert to abbreviated format
+        { role => content }
+      else
+        msg
+      end
     end
   end
 end

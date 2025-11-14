@@ -3,6 +3,7 @@
 require "active_support/concern"
 require "active_support/core_ext/object/blank"
 require "active_support/core_ext/string/filters"
+require "active_support/core_ext/hash/indifferent_access"
 require "ruby_llm"
 
 require_relative "message_adapters/base"
