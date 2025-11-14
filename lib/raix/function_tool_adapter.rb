@@ -28,7 +28,15 @@ module Raix
         "Raix::GeneratedTool::#{function_def[:name].to_s.camelize}"
       end
 
-      tool_class.new
+      tool_instance = tool_class.new
+
+      # Override the name method to return the original function name
+      # This ensures RubyLLM can match the tool call from the AI
+      tool_instance.define_singleton_method(:name) do
+        function_def[:name].to_s
+      end
+
+      tool_instance
     end
 
     def self.convert_tools_for_ruby_llm(raix_instance)

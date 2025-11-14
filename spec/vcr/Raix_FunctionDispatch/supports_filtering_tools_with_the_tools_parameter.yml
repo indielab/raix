@@ -1,0 +1,73 @@
+---
+http_interactions:
+- request:
+    method: post
+    uri: https://openrouter.ai/api/v1/chat/completions
+    body:
+      encoding: UTF-8
+      string: '{"model":"meta-llama/llama-3.3-8b-instruct:free","messages":[{"role":"user","content":"What
+        is the weather in Zipolite, Oaxaca?"},{"role":"user","content":"Call the check_weather
+        function."}],"stream":false,"temperature":0.0,"seed":9999}'
+    headers:
+      User-Agent:
+      - Faraday v2.9.2
+      Authorization:
+      - Bearer REDACTED
+      Content-Type:
+      - application/json
+      Accept-Encoding:
+      - gzip;q=1.0,deflate;q=0.6,identity;q=0.3
+      Accept:
+      - "*/*"
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Date:
+      - Fri, 14 Nov 2025 23:50:18 GMT
+      Content-Type:
+      - application/json
+      Transfer-Encoding:
+      - chunked
+      Connection:
+      - keep-alive
+      Access-Control-Allow-Origin:
+      - "*"
+      Vary:
+      - Accept-Encoding
+      Permissions-Policy:
+      - payment=(self "https://checkout.stripe.com" "https://connect-js.stripe.com"
+        "https://js.stripe.com" "https://*.js.stripe.com" "https://hooks.stripe.com")
+      Referrer-Policy:
+      - no-referrer, strict-origin-when-cross-origin
+      X-Content-Type-Options:
+      - nosniff
+      Server:
+      - cloudflare
+      Cf-Ray:
+      - 99ea68fb4b934cc1-QRO
+    body:
+      encoding: ASCII-8BIT
+      string: "\n         \n\n         \n\n         \n\n         \n\n         \n\n
+        \        \n\n         \n{\"id\":\"gen-1763164215-WXSG3QtRhpXL7xIppmLA\",\"provider\":\"Meta\",\"model\":\"meta-llama/llama-3.3-8b-instruct:free\",\"object\":\"chat.completion\",\"created\":1763164217,\"choices\":[{\"logprobs\":null,\"finish_reason\":\"stop\",\"native_finish_reason\":\"stop\",\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"I'm
+        a large language model, I don't have have access to real-time weather data.
+        However, I can provide general information about the weather in Zipolite,
+        Oaxaca.\\n\\nZipolite, Oaxaca is a coastal town in southern Mexico, known
+        for its laid-back atmosphere and stunning beaches. The weather in Zipolite
+        is typically warm and sunny year-round, with two main seasons: the dry season
+        (December to May) and the wet season (June to November).\\n\\nIf you'd like,
+        I can provide more information about the average temperature and precipitation
+        in Zipolite, or I can try to find a weather API that can provide real-time
+        weather data for the area. \\n\\nHere is a Python function that you can use
+        to get the weather in Zipolite, Oaxaca:\\n\\n```python\\nimport requests\\n\\ndef
+        check_weather(location):\\n    api_key = \\\"YOUR_OPENWEATHERMAP_API_KEY\\\"\\n
+        \   base_url = \\\"http://api.openweathermap.org/data/2.5/weather\\\"\\n    params
+        = {\\n        \\\"q\\\": location,\\n        \\\"appid\\\": api_key,\\n        \\\"units\\\":
+        \\\"metric\\\"\\n    }\\n    response = requests.get(base_url, params=params)\\n
+        \   weather_data = response.json()\\n    return weather_data\\n\\nlocation
+        = \\\"Zipolite, Oaxaca\\\"\\nweather = check_weather(location)\\nprint(weather)\\n```\\n\\nPlease
+        note that you need to replace \\\"YOUR_OPENWEATHERMAP_API_KEY\\\" with your
+        actual OpenWeatherMap API key.\",\"refusal\":null,\"reasoning\":null}}],\"usage\":{\"prompt_tokens\":34,\"completion_tokens\":302,\"total_tokens\":336}}"
+  recorded_at: Fri, 14 Nov 2025 23:50:19 GMT
+recorded_with: VCR 6.2.0

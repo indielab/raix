@@ -51,6 +51,13 @@ module Raix
       flatten.last
     end
 
+    # Get size of transcript
+    def size
+      flatten.size
+    end
+
+    alias length size
+
     private
 
     def add_message_from_hash(hash)

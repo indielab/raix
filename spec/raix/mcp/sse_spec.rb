@@ -81,14 +81,14 @@ RSpec.describe Raix::MCP do
       # Verify we got a result and transcript was updated
       expect(result).to be_a(String)
       expect(result).not_to be_empty
-      expect(consumer.transcript.size).to eq(transcript_size_before + 1)
+      # FunctionDispatch adds 2 messages: assistant message with tool_calls and tool result message
+      expect(consumer.transcript.size).to eq(transcript_size_before + 2)
 
-      # Verify transcript structure
-      last_entry = consumer.transcript.last
-      expect(last_entry).to be_an(Array)
-      expect(last_entry.size).to eq(2)
+      # Verify the last two entries are the tool call and result
+      entries = consumer.transcript.flatten.last(2)
+      expect(entries.size).to eq(2)
 
-      assistant_msg, tool_msg = last_entry
+      assistant_msg, tool_msg = entries
       expect(assistant_msg[:role]).to eq("assistant")
       expect(function_name.to_s).to include(assistant_msg[:tool_calls].first.dig(:function, :name))
 
