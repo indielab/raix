@@ -138,7 +138,7 @@ module Raix
       # Process SSE buffer for complete events
       def process_sse_buffer
         while (idx = @buffer.index("\n\n"))
-          event_text = @buffer.slice!(0..idx + 1)
+          event_text = @buffer.slice!(0..(idx + 1))
           event_type, event_data = parse_sse_fields(event_text)
 
           case event_type

@@ -392,7 +392,7 @@ module Raix
           }
         }
       end
-    rescue => e
+    rescue StandardError => e
       warn "RubyLLM request failed: #{e.message}"
       raise e
     end

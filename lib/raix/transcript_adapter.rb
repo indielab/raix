@@ -73,14 +73,8 @@ module Raix
       elsif hash.key?(:assistant) || hash.key?("assistant")
         content = hash[:assistant] || hash["assistant"]
         @pending_messages << { role: "assistant", content: }
-      elsif hash[:role] == "tool" || hash["role"] == "tool"
-        # Tool result message
-        @pending_messages << hash.with_indifferent_access
-      elsif hash[:role] == "assistant" && (hash[:tool_calls] || hash["tool_calls"])
-        # Assistant message with tool calls
-        @pending_messages << hash.with_indifferent_access
       elsif hash[:role] || hash["role"]
-        # Standard OpenAI format
+        # Standard OpenAI format (tool messages, assistant with tool_calls, etc.)
         @pending_messages << hash.with_indifferent_access
       end
     end

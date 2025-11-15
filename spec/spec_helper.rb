@@ -24,13 +24,6 @@ end
 
 Dotenv.load
 
-retry_options = {
-  max: 2,
-  interval: 0.05,
-  interval_randomness: 0.5,
-  backoff_factor: 2
-}
-
 RubyLLM.configure do |config|
   config.openrouter_api_key = ENV.fetch("OR_ACCESS_TOKEN", nil)
   config.openai_api_key = ENV.fetch("OAI_ACCESS_TOKEN", nil)
