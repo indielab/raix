@@ -43,6 +43,11 @@ module Raix
     # Access to RubyLLM configuration
     attr_accessor_with_fallback :ruby_llm_config
 
+    # A callable hook that runs before each chat completion request.
+    # Receives a CompletionContext and can modify params and messages.
+    # Use for: dynamic parameter resolution, logging, content filtering, PII redaction, etc.
+    attr_accessor_with_fallback :before_completion
+
     DEFAULT_MAX_TOKENS = 1000
     DEFAULT_MAX_COMPLETION_TOKENS = 16_384
     DEFAULT_MODEL = "meta-llama/llama-3.3-8b-instruct:free"

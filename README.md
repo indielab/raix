@@ -6,7 +6,7 @@ Raix (pronounced "ray" because the x is silent) is a library that gives you ever
 
 Understanding how to use discrete AI components in otherwise normal code is key to productively leveraging Raix, and the subject of a book written by Raix's author Obie Fernandez, titled [Patterns of Application Development Using AI](https://leanpub.com/patterns-of-application-development-using-ai). You can easily support the ongoing development of this project by buying the book at Leanpub.
 
-At the moment, Raix natively supports use of either OpenAI or OpenRouter as its underlying AI provider. Eventually you will be able to specify your AI provider via an adapter, kind of like ActiveRecord maps to databases. Note that you can also use Raix to add AI capabilities to non-Rails applications as long as you include ActiveSupport as a dependency. Extracting the base code to its own standalone library without Rails dependencies is on the roadmap, but not a high priority.
+Raix 2.0 is powered by [RubyLLM](https://github.com/crmne/ruby_llm), giving you unified access to OpenAI, Anthropic, Google Gemini, and dozens of other providers through OpenRouter. Note that you can use Raix to add AI capabilities to non-Rails applications as long as you include ActiveSupport as a dependency.
 
 ### Chat Completions
 
@@ -103,6 +103,148 @@ When using JSON mode with non-OpenAI providers, Raix automatically sets the `req
 ```ruby
 >> my_class.chat_completion(json: true, openai: "gpt-4o")
 => { "key": "value" }
+```
+
+### before_completion Hook
+
+The `before_completion` hook lets you intercept and modify chat completion requests before they're sent to the AI provider. This is useful for dynamic parameter resolution, logging, content filtering, PII redaction, and more.
+
+#### Configuration Levels
+
+Hooks can be configured at three levels, with later levels overriding earlier ones:
+
+```ruby
+# Global level - applies to all chat completions
+Raix.configure do |config|
+  config.before_completion = ->(context) {
+    # Return a hash of params to merge, or modify context.messages directly
+    { temperature: 0.7 }
+  }
+end
+
+# Class level - applies to all instances of a class
+class MyAssistant
+  include Raix::ChatCompletion
+
+  configure do |config|
+    config.before_completion = ->(context) { { model: "gpt-4o" } }
+  end
+end
+
+# Instance level - applies to a single instance
+assistant = MyAssistant.new
+assistant.before_completion = ->(context) { { max_tokens: 500 } }
+```
+
+When hooks exist at multiple levels, they're called in order (global → class → instance), with returned params merged together. Later hooks override earlier ones for the same parameter.
+
+#### The CompletionContext Object
+
+Hooks receive a `CompletionContext` object with access to:
+
+```ruby
+context.chat_completion       # The ChatCompletion instance
+context.messages              # Array of messages (mutable, in OpenAI format)
+context.params                # Hash of params (mutable)
+context.transcript            # The instance's transcript
+context.current_model         # Currently configured model
+context.chat_completion_class # The class including ChatCompletion
+context.configuration         # The instance's configuration
+```
+
+#### Use Cases
+
+**Dynamic model selection from database:**
+
+```ruby
+Raix.configure do |config|
+  config.before_completion = ->(context) {
+    settings = TenantSettings.find_by(tenant: Current.tenant)
+    {
+      model: settings.preferred_model,
+      temperature: settings.temperature,
+      max_tokens: settings.max_tokens
+    }
+  }
+end
+```
+
+**PII redaction:**
+
+```ruby
+class SecureAssistant
+  include Raix::ChatCompletion
+
+  before_completion = ->(context) {
+    context.messages.each do |msg|
+      next unless msg[:content].is_a?(String)
+      # Redact SSN patterns
+      msg[:content] = msg[:content].gsub(/\d{3}-\d{2}-\d{4}/, "[SSN REDACTED]")
+      # Redact email addresses
+      msg[:content] = msg[:content].gsub(/[\w.-]+@[\w.-]+\.\w+/, "[EMAIL REDACTED]")
+    end
+    {} # Return empty hash if not modifying params
+  }
+end
+```
+
+**Request logging:**
+
+```ruby
+Raix.configure do |config|
+  config.before_completion = ->(context) {
+    Rails.logger.info({
+      event: "chat_completion_request",
+      model: context.current_model,
+      message_count: context.messages.length,
+      params: context.params.except(:messages)
+    }.to_json)
+    {} # Return empty hash, just logging
+  }
+end
+```
+
+**Adding system prompts:**
+
+```ruby
+assistant.before_completion = ->(context) {
+  context.messages.unshift({
+    role: "system",
+    content: "Always be helpful and respectful."
+  })
+  {}
+}
+```
+
+**A/B testing models:**
+
+```ruby
+Raix.configure do |config|
+  config.before_completion = ->(context) {
+    if Flipper.enabled?(:new_model, Current.user)
+      { model: "gpt-4o" }
+    else
+      { model: "gpt-4o-mini" }
+    end
+  }
+end
+```
+
+Hooks can also be any object that responds to `#call`:
+
+```ruby
+class CostTracker
+  def call(context)
+    # Track estimated cost based on message length
+    estimated_tokens = context.messages.sum { |m| m[:content].to_s.length / 4 }
+    StatsD.gauge("ai.estimated_input_tokens", estimated_tokens)
+    {}
+  end
+end
+
+Raix.configure do |config|
+  config.before_completion = CostTracker.new
+end
 ```
 
 ### Use of Tools/Functions
@@ -711,48 +853,62 @@ If bundler is not being used to manage dependencies, install the gem by executin
 
     $ gem install raix
 
-If you are using the default OpenRouter API, Raix expects `Raix.configuration.openrouter_client` to initialized with the OpenRouter API client instance.
+### Configuration
 
-You can add an initializer to your application's `config/initializers` directory that looks like this example (setting up both providers, OpenRouter and OpenAI):
+Raix 2.0 uses [RubyLLM](https://github.com/crmne/ruby_llm) as its backend for LLM provider connections. Configure your API keys through RubyLLM:
 
 ```ruby
-  # config/initializers/raix.rb
-  OpenRouter.configure do |config|
-    config.faraday do |f|
-      f.request :retry, retry_options
-      f.response :logger, Logger.new($stdout), { headers: true, bodies: true, errors: true } do |logger|
-        logger.filter(/(Bearer) (\S+)/, '\1[REDACTED]')
-      end
-    end
-  end
-
-  Raix.configure do |config|
-    config.openrouter_client = OpenRouter::Client.new(access_token: ENV.fetch("OR_ACCESS_TOKEN", nil))
-    config.openai_client = OpenAI::Client.new(access_token: ENV.fetch("OAI_ACCESS_TOKEN", nil)) do |f|
-      f.request :retry, retry_options
-      f.response :logger, Logger.new($stdout), { headers: true, bodies: true, errors: true } do |logger|
-        logger.filter(/(Bearer) (\S+)/, '\1[REDACTED]')
-      end
-    end
-  end
+# config/initializers/raix.rb
+RubyLLM.configure do |config|
+  config.openrouter_api_key = ENV["OPENROUTER_API_KEY"]
+  config.openai_api_key = ENV["OPENAI_API_KEY"]
+  # Optional: configure other providers
+  # config.anthropic_api_key = ENV["ANTHROPIC_API_KEY"]
+  # config.gemini_api_key = ENV["GEMINI_API_KEY"]
+end
 ```
 
-You will also need to configure the OpenRouter API access token as per the instructions here: https://github.com/OlympiaAI/open_router?tab=readme-ov-file#quickstart
+Raix will automatically use the appropriate provider based on the model name:
+- Models starting with `gpt-` or `o1` use OpenAI directly
+- All other models route through OpenRouter
 
-### Global vs class level configuration
+### Global vs Class-Level Configuration
 
-You can either configure Raix globally or at the class level. The global configuration is set in the initializer as shown above. You can however also override all configuration options of the `Configuration` class on the class level with the
-same syntax:
+You can configure Raix options globally or at the class level:
 
 ```ruby
-class MyClass
+# Global configuration
+Raix.configure do |config|
+  config.temperature = 0.7
+  config.max_tokens = 1000
+  config.model = "gpt-4o"
+  config.max_tool_calls = 25
+end
+
+# Class-level configuration (overrides global)
+class MyAssistant
   include Raix::ChatCompletion
 
   configure do |config|
-    config.openrouter_client = OpenRouter::Client.new # with my special options
+    config.model = "anthropic/claude-3-opus"
+    config.temperature = 0.5
   end
 end
 ```
+
+### Upgrading from Raix 1.x
+
+If upgrading from Raix 1.x, update your configuration from:
+
+```ruby
+# Old 1.x configuration
+Raix.configure do |config|
+  config.openrouter_client = OpenRouter::Client.new(access_token: "...")
+  config.openai_client = OpenAI::Client.new(access_token: "...")
+end
+```
+
+To the new RubyLLM-based configuration shown above.
 
 ## Development
 

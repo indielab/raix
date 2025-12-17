@@ -42,10 +42,10 @@ module Raix
   module ChatCompletion
     extend ActiveSupport::Concern
 
-    attr_accessor :cache_at, :frequency_penalty, :logit_bias, :logprobs, :loop, :min_p, :model, :presence_penalty,
-                  :prediction, :repetition_penalty, :response_format, :stream, :temperature, :max_completion_tokens,
-                  :max_tokens, :seed, :stop, :top_a, :top_k, :top_logprobs, :top_p, :tools, :available_tools, :tool_choice, :provider,
-                  :max_tool_calls, :stop_tool_calls_and_respond
+    attr_accessor :before_completion, :cache_at, :frequency_penalty, :logit_bias, :logprobs, :loop, :min_p, :model,
+                  :presence_penalty, :prediction, :repetition_penalty, :response_format, :stream, :temperature,
+                  :max_completion_tokens, :max_tokens, :seed, :stop, :top_a, :top_k, :top_logprobs, :top_p, :tools,
+                  :available_tools, :tool_choice, :provider, :max_tool_calls, :stop_tool_calls_and_respond
 
     class_methods do
       # Returns the current configuration of this class. Falls back to global configuration for unset values.
@@ -143,6 +143,10 @@ module Raix
       messages ||= transcript.flatten.compact
       messages = messages.map { |msg| adapter.transform(msg) }.dup
       raise "Can't complete an empty transcript" if messages.blank?
+
+      # Run before_completion hooks (global -> class -> instance)
+      # Hooks can modify params and messages for logging, filtering, PII redaction, etc.
+      run_before_completion_hooks(params, messages)
 
       begin
         response = ruby_llm_request(params:, model: openai || model, messages:, openai_override: openai)
@@ -311,6 +315,31 @@ module Raix
       raise UndeclaredToolError, "Undeclared tools: #{undeclared_tools.join(", ")}" if undeclared_tools.any?
 
       tools.select { |tool| requested_tools.include?(tool.dig(:function, :name).to_sym) }
+    end
+
+    def run_before_completion_hooks(params, messages)
+      hooks = [
+        Raix.configuration.before_completion,
+        self.class.configuration.before_completion,
+        before_completion
+      ].compact
+
+      return if hooks.empty?
+
+      context = CompletionContext.new(
+        chat_completion: self,
+        messages:,
+        params:
+      )
+
+      hooks.each do |hook|
+        result = hook.call(context) if hook.respond_to?(:call)
+        next unless result.is_a?(Hash)
+
+        # Handle model separately since it's passed as a keyword arg to ruby_llm_request
+        self.model = result[:model] if result.key?(:model)
+        params.merge!(result.compact)
+      end
     end
 
     def ruby_llm_request(params:, model:, messages:, openai_override: nil)

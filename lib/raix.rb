@@ -2,8 +2,9 @@
 
 require "ruby_llm"
 
-require_relative "raix/version"
+require_relative "raix/completion_context"
 require_relative "raix/configuration"
+require_relative "raix/version"
 require_relative "raix/transcript_adapter"
 require_relative "raix/function_tool_adapter"
 require_relative "raix/chat_completion"

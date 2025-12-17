@@ -1,3 +1,44 @@
+## [2.0.0] - 2025-12-17
+
+### Breaking Changes
+- **Migrated from OpenRouter/OpenAI gems to RubyLLM** - Raix now uses [RubyLLM](https://github.com/crmne/ruby_llm) as its unified backend for all LLM providers. This provides better multi-provider support and a more consistent API.
+- **Configuration changes** - API keys are now configured through RubyLLM's configuration system instead of separate client instances.
+- **Removed direct client dependencies** - `openrouter` and `ruby-openai` gems are no longer direct dependencies; RubyLLM handles provider connections.
+
+### Added
+- **`before_completion` hook** - New hook system for intercepting and modifying chat completion requests before they're sent to the AI provider.
+  - Configure at global, class, or instance levels
+  - Hooks receive a `CompletionContext` with access to messages, params, and the chat completion instance
+  - Messages are mutable for content filtering, PII redaction, adding system prompts, etc.
+  - Params can be modified for dynamic model selection, A/B testing, and more
+  - Supports any callable object (Proc, Lambda, or object responding to `#call`)
+  - Use cases: database-backed configuration, logging, PII redaction, content filtering, cost tracking
+- **`FunctionToolAdapter`** - New adapter for converting Raix function declarations to RubyLLM tool format
+- **`TranscriptAdapter`** - New adapter for bridging Raix's abbreviated message format with standard OpenAI format
+
+### Changed
+- Chat completions now use RubyLLM's unified API for all providers (OpenAI, Anthropic, Google, etc.)
+- Improved provider detection based on model name patterns
+- Streamlined internal architecture with dedicated adapters
+
+### Migration Guide
+Update your configuration from:
+```ruby
+Raix.configure do |config|
+  config.openrouter_client = OpenRouter::Client.new(access_token: "...")
+  config.openai_client = OpenAI::Client.new(access_token: "...")
+end
+```
+
+To:
+```ruby
+RubyLLM.configure do |config|
+  config.openrouter_api_key = ENV["OPENROUTER_API_KEY"]
+  config.openai_api_key = ENV["OPENAI_API_KEY"]
+  # Also supports: anthropic_api_key, gemini_api_key
+end
+```
+
 ## [1.0.2] - 2025-07-16
 ### Added
 - Added method to check for API client availability in Configuration
